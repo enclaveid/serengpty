@@ -4,12 +4,15 @@ import Image from 'next/image';
 import { Logo } from '../../../../libs/ui/src/logo';
 import { Button } from '@enclaveid/ui/button';
 import Link from 'next/link';
-import { LandingGuidance } from './components/landing-guidance';
+import { LandingGuidance } from './components/landing/landing-guidance';
+import { OnboardingForm } from './components/landing/onboarding-form';
 
 export default function Index() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-gray-800">
       <Header />
+      {/* Global overlay to blur the background on file drag */}
+      {/* <GlobalDragBlurOverlay /> */}
       <main className="flex-grow">
         <Hero />
         <PrivacySection />
@@ -21,7 +24,7 @@ export default function Index() {
 
 function Header() {
   return (
-    <header className="sticky top-0 z-50 bg-offwhite">
+    <header className="sticky top-0 z-20 bg-offwhite">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo / Company Name */}
@@ -50,7 +53,7 @@ function Header() {
             </a>
 
             <Link href="/dashboard/home">
-              <Button size="sm">Sign In</Button>
+              <Button size="sm">Login</Button>
             </Link>
           </nav>
         </div>
@@ -62,37 +65,30 @@ function Header() {
 function Hero() {
   return (
     <section className="bg-offwhite pt-12 relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 my-24">
         <div className="flex flex-col md:flex-row items-center gap-12">
           <div className="w-full md:w-1/2 max-w-2xl md:mt-[-100px]">
             <h1 className="text-3xl md:text-5xl font-bold mb-4">
-              User understanding for the AI era
+              Discover ChatGPT users similar to you
             </h1>
             <p className="text-lg md:text-xl text-gray-600 mb-6">
-              EnclaveID activates your platform's behavioral data to power
-              advanced personalization and intelligent social features that
-              drive engagement
+              That have gone down your same rabbit holes, are exploring the same
+              philosophical questions, or are even just working out the exact
+              same coding problems!
             </p>
           </div>
-
-          {/* Video Container */}
-          {/* <div className="w-full md:w-1/2 mb-8 md:mb-0">
-            <LandingVideo />
-            <div className="relative text-center text-sm text-gray-400 mt-4">
-              Click / touch to pause and unpause
-            </div>
-          </div> */}
+          <OnboardingForm />
         </div>
       </div>
 
-      <LandingGuidance />
-
-      {/* <div
+      <div
         className="absolute bottom-0 left-0 right-0 md:h-[500px] h-[250px] bg-white"
         style={{
           clipPath: 'polygon(0 100%, 100% 100%, 100% 50%, 0 75%)',
         }}
-      /> */}
+      />
+
+      <LandingGuidance />
     </section>
   );
 }
@@ -153,7 +149,7 @@ function PrivacySection() {
                 Zero Trust Infrastructure
               </h3>
               <p className="text-content-secondary">
-                EnclaveID runs on AMD SEV-SNP capable hardware – hence “enclave”
+                EnclaveID runs on AMD SEV-SNP capable hardware – hence "enclave"
                 in the name – which guarantees that your data is inaccessible by
                 any other software or human (except you), even by the
                 infrastructure provider!
@@ -204,51 +200,6 @@ function Footer() {
             <h3 className="text-gray-900 font-bold text-lg mb-4">EnclaveID</h3>
             <p className="text-sm text-gray-900">Get LLMs to know you</p>
           </div>
-
-          {/* Quick Links */}
-          {/* <div className="col-span-1">
-            <h4 className="text-white font-semibold mb-4">Quick Links</h4>
-            <ul className="space-y-2">
-              <li>
-                <a href="#" className="hover:text-white transition-colors">
-                  Documentation
-                </a>
-              </li>
-              <li>
-                <a href="#" className="hover:text-white transition-colors">
-                  About Us
-                </a>
-              </li>
-              <li>
-                <a href="#" className="hover:text-white transition-colors">
-                  Contact
-                </a>
-              </li>
-            </ul>
-          </div> */}
-
-          {/* Social Links */}
-          {/* <div className="col-span-1">
-            <h4 className="text-gray-900 font-semibold mb-4">Connect</h4>
-            <div className="flex gap-4">
-              <a
-                href="https://discord.gg/your-discord"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-900 hover:text-gray-700"
-              >
-                <DiscordIcon className="w-6 h-6" />
-              </a>
-              <a
-                href="https://github.com/your-github"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-900 hover:text-gray-700"
-              >
-                <GitHubIcon className="w-6 h-6" />
-              </a>
-            </div>
-          </div> */}
         </div>
 
         {/* Copyright */}

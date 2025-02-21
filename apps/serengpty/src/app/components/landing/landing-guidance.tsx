@@ -32,7 +32,7 @@ const steps = [
 
 export function LandingGuidance() {
   return (
-    <Card className="mx-20">
+    <Card className="max-w-7xl mx-auto relative">
       <CardContent className="py-4">
         <div className="flex flex-col items-center">
           {/* Row: Images and Arrows */}
@@ -55,7 +55,7 @@ export function LandingGuidance() {
                 </div>
                 {index < steps.length - 1 && (
                   <div className="flex items-center justify-center">
-                    <MaterialSymbolsArrowForwardIosRounded className="w-12 h-12 text-gray-400" />
+                    <MaterialSymbolsArrowForwardIosRounded className="w-8 h-8 text-gray-400" />
                   </div>
                 )}
               </React.Fragment>
@@ -70,7 +70,7 @@ export function LandingGuidance() {
                 </div>
                 {index < steps.length - 1 && (
                   // Empty spacer that matches the width of the arrow container.
-                  <div className="w-12" />
+                  <div className="w-8" />
                 )}
               </React.Fragment>
             ))}
