@@ -3,6 +3,7 @@
 import '@enclaveid/ui-utils/global.css';
 
 import type { Metadata } from 'next';
+import { Toaster } from '@enclaveid/ui/toaster';
 
 export const metadata: Metadata = {
   title: 'EnclaveID',

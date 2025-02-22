@@ -11,6 +11,7 @@ export default function Index() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-gray-800">
       <Header />
+
       {/* Global overlay to blur the background on file drag */}
       {/* <GlobalDragBlurOverlay /> */}
       <main className="flex-grow">
@@ -69,7 +70,7 @@ function Hero() {
         <div className="flex flex-col md:flex-row items-center gap-12">
           <div className="w-full md:w-1/2 max-w-2xl md:mt-[-100px]">
             <h1 className="text-3xl md:text-5xl font-bold mb-4">
-              Discover ChatGPT users similar to you
+              Find similar ChatGPT users, anonymously
             </h1>
             <p className="text-lg md:text-xl text-gray-600 mb-6">
               That have gone down your same rabbit holes, are exploring the same
@@ -77,18 +78,43 @@ function Hero() {
               same coding problems!
             </p>
           </div>
+
           <OnboardingForm />
         </div>
       </div>
 
-      <div
+      {/* slanted background */}
+      {/* <div
         className="absolute bottom-0 left-0 right-0 md:h-[500px] h-[250px] bg-white"
         style={{
           clipPath: 'polygon(0 100%, 100% 100%, 100% 50%, 0 75%)',
         }}
+      /> */}
+
+      <div
+        className="absolute bottom-0 left-0 right-0 md:h-[500px] h-[250px] bg-white"
+        style={{
+          clipPath: 'polygon(0 100%, 100% 100%, 100% 75%, 0 75%)',
+        }}
       />
 
+      {/* <Image
+        src="/arrow-start.svg"
+        alt="Arrow start"
+        width={100}
+        height={100}
+        className="absolute bottom-[160px] left-[120px] h-[230px] w-[230px]"
+      /> */}
+
       <LandingGuidance />
+
+      <Image
+        src="/arrow-end.svg"
+        alt="Arrow end"
+        width={100}
+        height={100}
+        className="absolute bottom-[200px] right-[100px] h-[150px] w-[150px]"
+      />
     </section>
   );
 }
@@ -143,23 +169,10 @@ function PrivacySection() {
 
           {/* Right column: Info blocks */}
           <div className="space-y-8">
-            {/* Zero Trust */}
-            <div>
-              <h3 className="text-xl font-bold text-brand mb-2">
-                Zero Trust Infrastructure
-              </h3>
-              <p className="text-content-secondary">
-                EnclaveID runs on AMD SEV-SNP capable hardware – hence "enclave"
-                in the name – which guarantees that your data is inaccessible by
-                any other software or human (except you), even by the
-                infrastructure provider!
-              </p>
-            </div>
-
             {/* Open Source */}
             <div>
               <h3 className="text-xl font-bold text-brand mb-2">
-                100% Open Source
+                As anonymous as you're comfortable with
               </h3>
               <p className="text-gray-700">
                 Every single component of EnclaveID is publicly available on
@@ -174,13 +187,26 @@ function PrivacySection() {
             {/* Community Owned */}
             <div>
               <h3 className="text-xl font-bold text-brand mb-2">
-                Community Owned
+                100% Open Source and Community Owned
               </h3>
               <p className="text-gray-700">
                 EnclaveID is a community-owned project with the goal of
                 empowering individuals for a flourishing democratic society. Our
                 code is a reflection of the will of such individuals, so
                 contributions and feedback are strongly encouraged!
+              </p>
+            </div>
+
+            {/* Zero Trust */}
+            <div>
+              <h3 className="text-xl font-bold text-brand mb-2">
+                Zero Trust Infrastructure [coming soon!]
+              </h3>
+              <p className="text-content-secondary">
+                EnclaveID runs on AMD SEV-SNP capable hardware – hence "enclave"
+                in the name – which guarantees that your data is inaccessible by
+                any other software or human (except you), even by the
+                infrastructure provider!
               </p>
             </div>
           </div>

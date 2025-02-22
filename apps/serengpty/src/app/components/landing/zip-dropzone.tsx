@@ -12,7 +12,7 @@ export function ZipDropzone({ onDrop }: { onDrop: (files: File[]) => void }) {
   return (
     <div
       {...getRootProps()}
-      className="isolate relative z-50 w-full md:w-1/2 mb-8 md:mb-0 border-2 border-dashed border-gray-300 p-6 rounded-lg flex flex-col items-center justify-center text-center hover:border-green-800 transition-colors"
+      className="relative w-full mb-8 md:mb-0 border-2 border-dashed border-gray-300 p-6 rounded-lg flex flex-col items-center justify-center text-center hover:border-green-800 transition-colors"
     >
       <input {...getInputProps()} />
       <>

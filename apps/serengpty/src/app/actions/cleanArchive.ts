@@ -88,11 +88,10 @@ export async function cleanArchive(formData: FormData) {
     const conversations = await readZip(buffer, 'conversations.json');
 
     // Read and parse the JSON.
-    const content = conversations.toString('utf8');
-    const jsonData = JSON.parse(content);
+    const content = JSON.parse(conversations.toString('utf8'));
 
     // Clean the JSON data recursively.
-    const cleanedJson = cleanData(jsonData);
+    const cleanedJson = cleanData(content);
 
     return { success: true, conversations: cleanedJson };
   } catch (error) {
