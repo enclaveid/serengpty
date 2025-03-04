@@ -117,43 +117,57 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     const chatService = getChatService();
     let isMounted = true;
     
-    chatService.connect()
-      .then(() => {
-        if (isMounted) {
-          setState(prev => ({ ...prev, isConnected: true }));
-        }
-      })
-      .catch(error => {
+    // Handle connection establishing
+    const connectChat = async () => {
+      try {
+        await chatService.connect();
+      } catch (error) {
         console.error("Failed to connect to chat service:", error);
+      }
+    };
+    
+    connectChat();
+    
+    // Monitor connection status
+    const handleConnectionStatus = (isConnected: boolean) => {
+      if (!isMounted) return;
+      setState(prev => ({ ...prev, isConnected }));
+    };
+    
+    // Set up conversations listener with stable reference 
+    const handleConversationsUpdate = (newConversations: Conversation[]) => {
+      if (!isMounted) return;
+      
+      // Update conversations
+      setState(prev => {
+        // Calculate total unread count
+        const totalUnreadCount = newConversations.reduce(
+          (total, conv) => total + conv.unreadCount, 0
+        );
+        
+        // Build unread counts by user
+        const unreadCounts: { [userId: string]: number } = {};
+        newConversations.forEach(conversation => {
+          unreadCounts[conversation.user.id] = conversation.unreadCount;
+        });
+        
+        return {
+          ...prev,
+          conversations: newConversations,
+          unreadCounts,
+          totalUnreadCount,
+        };
       });
+    };
     
     // Set up listeners
-    const conversationsListener = chatService.onConversationsUpdate((newConversations) => {
-      if (isMounted) {
-        // Update conversations
-        setState(prev => {
-          // Calculate total unread count
-          const totalUnreadCount = newConversations.reduce((total, conv) => total + conv.unreadCount, 0);
-          
-          // Build unread counts by user
-          const unreadCounts: { [userId: string]: number } = {};
-          newConversations.forEach(conversation => {
-            unreadCounts[conversation.user.id] = conversation.unreadCount;
-          });
-          
-          return {
-            ...prev,
-            conversations: newConversations,
-            unreadCounts,
-            totalUnreadCount,
-          };
-        });
-      }
-    });
+    const connectionStatusListener = chatService.onConnectionStatus(handleConnectionStatus);
+    const conversationsListener = chatService.onConversationsUpdate(handleConversationsUpdate);
     
     // Clean up on unmount
     return () => {
       isMounted = false;
+      connectionStatusListener();
       conversationsListener();
       resetChatService();
     };
@@ -168,31 +182,46 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     
     // Set up message listener for current conversation
     const chatService = getChatService();
-    const messageListener = chatService.onNewMessage(state.currentConversation, (newMessage) => {
+    const conversationId = state.currentConversation; // Create stable reference
+    
+    // Stable message handler function
+    const handleNewMessage = (newMessage: Message) => {
       setState(prev => {
-        const conversationMessages = prev.messages.get(state.currentConversation!) || [];
+        const conversationMessages = prev.messages.get(conversationId) || [];
         
-        // Prevent duplicate messages
-        const isDuplicate = conversationMessages.some(
-          msg => msg.id === newMessage.id || 
-                (msg.text === newMessage.text && 
-                msg.sender_id === newMessage.sender_id &&
-                msg.receiver_id === newMessage.receiver_id)
+        // More robust duplicate detection using message ID first
+        // Then fallback to content + metadata comparison
+        if (newMessage.id) {
+          // If message has ID, check for exact ID match first
+          const exactIdMatch = conversationMessages.some(msg => msg.id === newMessage.id);
+          if (exactIdMatch) return prev;
+        }
+        
+        // Check for same content with same metadata (likely a duplicate)
+        const contentMatch = conversationMessages.some(msg => 
+          msg.text === newMessage.text && 
+          msg.sender_id === newMessage.sender_id &&
+          msg.receiver_id === newMessage.receiver_id &&
+          // Allow 10 second window for creating timestamp to consider as duplicate
+          Math.abs(new Date(msg.created_at).getTime() - new Date(newMessage.created_at).getTime()) < 10000
         );
         
-        if (isDuplicate) {
+        if (contentMatch) {
           return prev;
         }
         
+        // Not a duplicate, add to messages
         const newMessages = new Map(prev.messages);
-        newMessages.set(state.currentConversation!, [...conversationMessages, newMessage]);
+        newMessages.set(conversationId, [...conversationMessages, newMessage]);
         
         return {
           ...prev,
           messages: newMessages,
         };
       });
-    });
+    };
+    
+    const messageListener = chatService.onNewMessage(conversationId, handleNewMessage);
     
     return () => {
       messageListener();
@@ -204,13 +233,11 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     setState(prev => ({ ...prev, currentConversation: userId }));
     
     if (userId) {
-      // Mark as read when opening a conversation
-      try {
-        await markAsReadAction(userId);
-        await refreshChat();
-      } catch (error) {
-        console.error("Error marking messages as read:", error);
-      }
+      // Load messages for the new conversation
+      await loadMessages(userId);
+      
+      // Unread logic is now handled in the ChatInterface useEffect
+      // This prevents infinite loops of refreshChat -> setState -> markAsRead -> refreshChat
     }
   };
   
@@ -227,8 +254,24 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   // Mark as read
   const markAsRead = async (otherUserId: string): Promise<void> => {
     try {
-      await markAsReadAction(otherUserId);
-      await refreshChat();
+      const result = await markAsReadAction(otherUserId);
+      
+      // Only refresh if messages were actually marked as read
+      if (result) {
+        // Update unread counts without triggering another markAsRead cycle
+        setState(prev => {
+          const updatedUnreadCounts = { ...prev.unreadCounts };
+          updatedUnreadCounts[otherUserId] = 0;
+          
+          const updatedTotalUnreadCount = Object.values(updatedUnreadCounts).reduce((sum, count) => sum + count, 0);
+          
+          return {
+            ...prev,
+            unreadCounts: updatedUnreadCounts,
+            totalUnreadCount: updatedTotalUnreadCount
+          };
+        });
+      }
     } catch (error) {
       console.error("Error marking messages as read:", error);
     }

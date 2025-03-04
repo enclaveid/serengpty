@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from './getCurrentUser';
 import prisma from '../services/db/prisma';
-import { sendMessageToUser } from '../api/chat/sse/route';
+import { sendMessageToUser, type ChatMessage } from '../api/chat/sse/route';
 
 export interface Message {
   id?: string;
@@ -25,7 +25,7 @@ export interface Conversation {
 }
 
 /**
- * Gets conversations for the current user
+ * Gets conversations for the current user with optimized database queries
  */
 export async function getConversations(): Promise<Conversation[]> {
   const currentUser = await getCurrentUser();
@@ -37,74 +37,72 @@ export async function getConversations(): Promise<Conversation[]> {
   const currentUserId = currentUser.id;
 
   // Get all messages where the current user is either the sender or receiver
-  const conversationMessages = await prisma.message.findMany({
-    where: {
-      OR: [{ senderId: currentUserId }, { receiverId: currentUserId }],
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    include: {
-      sender: {
-        select: {
-          id: true,
-          name: true,
-          image: true,
-        },
+  // along with user details in a single query
+  const lastMessages = await prisma.$queryRaw<any[]>`
+    WITH RankedMessages AS (
+      SELECT 
+        m.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY 
+            CASE 
+              WHEN m."senderId" = ${currentUserId} THEN m."receiverId" 
+              ELSE m."senderId" 
+            END 
+          ORDER BY m."createdAt" DESC
+        ) as rn
+      FROM "Message" m
+      WHERE m."senderId" = ${currentUserId} OR m."receiverId" = ${currentUserId}
+    )
+    SELECT 
+      rm.*,
+      sender.id as "senderId",
+      sender.name as "senderName",
+      sender.image as "senderImage",
+      receiver.id as "receiverId",
+      receiver.name as "receiverName",
+      receiver.image as "receiverImage",
+      (
+        SELECT COUNT(*) 
+        FROM "Message" unread
+        WHERE 
+          unread."senderId" = CASE 
+            WHEN rm."senderId" = ${currentUserId} THEN rm."receiverId" 
+            ELSE rm."senderId" 
+          END
+          AND unread."receiverId" = ${currentUserId}
+          AND unread."readAt" IS NULL
+      ) as "unreadCount"
+    FROM RankedMessages rm
+    JOIN "User" sender ON rm."senderId" = sender.id
+    JOIN "User" receiver ON rm."receiverId" = receiver.id
+    WHERE rn = 1
+    ORDER BY rm."createdAt" DESC
+  `;
+
+  // Format the conversations
+  return lastMessages.map(msg => {
+    const isUserSender = msg.senderId === currentUserId;
+    const otherPersonId = isUserSender ? msg.receiverId : msg.senderId;
+    const otherPersonName = isUserSender ? msg.receiverName : msg.senderName;
+    const otherPersonImage = isUserSender ? msg.receiverImage : msg.senderImage;
+
+    return {
+      user: {
+        id: otherPersonId,
+        name: otherPersonName,
+        image: otherPersonImage,
       },
-      receiver: {
-        select: {
-          id: true,
-          name: true,
-          image: true,
-        },
+      lastMessage: {
+        id: msg.id,
+        text: msg.text,
+        sender_id: msg.senderId,
+        receiver_id: msg.receiverId,
+        created_at: msg.createdAt.toISOString(),
+        read_at: msg.readAt?.toISOString(),
       },
-    },
+      unreadCount: Number(msg.unreadCount),
+    };
   });
-
-  // Get unique conversations
-  const uniqueConversations = new Map();
-
-  for (const message of conversationMessages) {
-    // Determine the other person in the conversation
-    const otherPersonId =
-      message.senderId === currentUserId
-        ? message.receiverId
-        : message.senderId;
-
-    const otherPerson =
-      message.senderId === currentUserId ? message.receiver : message.sender;
-
-    if (!uniqueConversations.has(otherPersonId)) {
-      // Count unread messages for this conversation
-      const unreadCount = await prisma.message.count({
-        where: {
-          senderId: otherPersonId,
-          receiverId: currentUserId,
-          readAt: null,
-        },
-      });
-
-      uniqueConversations.set(otherPersonId, {
-        user: {
-          id: otherPerson.id,
-          name: otherPerson.name,
-          image: otherPerson.image,
-        },
-        lastMessage: {
-          id: message.id,
-          text: message.text,
-          sender_id: message.senderId,
-          receiver_id: message.receiverId,
-          created_at: message.createdAt.toISOString(),
-          read_at: message.readAt?.toISOString(),
-        },
-        unreadCount,
-      });
-    }
-  }
-
-  return Array.from(uniqueConversations.values());
 }
 
 /**
@@ -183,28 +181,38 @@ export async function sendMessage(
     read_at: message.readAt?.toISOString(),
   };
 
-  // Notify both users about the new message via SSE
-  try {
-    // Notify the sender
-    sendMessageToUser(currentUserId, {
+  // Update conversations and notify users in a single transaction
+  await prisma.$transaction(async (tx) => {
+    // Load conversations for both users in parallel
+    const [senderConvs, receiverConvs] = await Promise.all([
+      updateConversationsForUserInternal(currentUserId, tx),
+      updateConversationsForUserInternal(receiverId, tx)
+    ]);
+
+    // Notify both users
+    const messagePayload: ChatMessage = {
       type: 'message',
       message: formattedMessage,
-    });
+    };
 
-    // Notify the receiver
-    sendMessageToUser(receiverId, {
-      type: 'message',
-      message: formattedMessage,
-    });
+    // Send messages in parallel
+    await Promise.all([
+      sendMessageToUser(currentUserId, messagePayload),
+      sendMessageToUser(receiverId, messagePayload)
+    ]);
 
-    // Update conversation lists
-    setTimeout(async () => {
-      await updateConversationsForUser(currentUserId);
-      await updateConversationsForUser(receiverId);
-    }, 100);
-  } catch (error) {
-    console.error('Error notifying users about new message:', error);
-  }
+    // Send updated conversations
+    await Promise.all([
+      sendMessageToUser(currentUserId, {
+        type: 'conversations',
+        conversations: senderConvs,
+      }),
+      sendMessageToUser(receiverId, {
+        type: 'conversations',
+        conversations: receiverConvs,
+      })
+    ]);
+  });
 
   revalidatePath('/dashboard/chats');
   return formattedMessage;
@@ -223,7 +231,7 @@ export async function markAsRead(otherUserId: string): Promise<boolean> {
   const currentUserId = currentUser.id;
 
   // Mark all unread messages from other user as read
-  await prisma.message.updateMany({
+  const updateResult = await prisma.message.updateMany({
     where: {
       senderId: otherUserId,
       receiverId: currentUserId,
@@ -234,113 +242,134 @@ export async function markAsRead(otherUserId: string): Promise<boolean> {
     },
   });
 
-  // Update user's lastSeen
-  await prisma.user.update({
-    where: {
-      id: currentUserId,
-    },
-    data: {
-      lastSeen: new Date(),
-    },
-  });
-
-  // Update conversation lists
-  try {
-    const { sendMessageToUser } = await import('../api/chat/sse/route');
-    setTimeout(async () => {
-      await updateConversationsForUser(currentUserId);
-      await updateConversationsForUser(otherUserId);
-    }, 100);
-  } catch (error) {
-    console.error('Error updating conversations after read:', error);
+  // If no messages were updated, return early
+  if (updateResult.count === 0) {
+    return false;
   }
+
+  // Update user's lastSeen and get updated conversations in a transaction
+  await prisma.$transaction(async (tx) => {
+    // Update user's lastSeen
+    await tx.user.update({
+      where: { id: currentUserId },
+      data: { lastSeen: new Date() },
+    });
+
+    // Load conversations for both users in parallel
+    const [currentUserConvs, otherUserConvs] = await Promise.all([
+      updateConversationsForUserInternal(currentUserId, tx),
+      updateConversationsForUserInternal(otherUserId, tx)
+    ]);
+
+    // Send updated conversations
+    await Promise.all([
+      sendMessageToUser(currentUserId, {
+        type: 'conversations',
+        conversations: currentUserConvs,
+      }),
+      sendMessageToUser(otherUserId, {
+        type: 'conversations',
+        conversations: otherUserConvs,
+      })
+    ]);
+  });
 
   revalidatePath('/dashboard/chats');
   return true;
 }
 
 /**
+ * Updates conversations for a user - optimized internal version
+ * Used within transactions
+ */
+async function updateConversationsForUserInternal(
+  userId: string,
+  prismaClient: any
+): Promise<Conversation[]> {
+  // Get all messages where the user is either the sender or receiver
+  // along with user details in a single query
+  const lastMessages = await prismaClient.$queryRaw<any[]>`
+    WITH RankedMessages AS (
+      SELECT 
+        m.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY 
+            CASE 
+              WHEN m."senderId" = ${userId} THEN m."receiverId" 
+              ELSE m."senderId" 
+            END 
+          ORDER BY m."createdAt" DESC
+        ) as rn
+      FROM "Message" m
+      WHERE m."senderId" = ${userId} OR m."receiverId" = ${userId}
+    )
+    SELECT 
+      rm.*,
+      sender.id as "senderId",
+      sender.name as "senderName",
+      sender.image as "senderImage",
+      receiver.id as "receiverId",
+      receiver.name as "receiverName",
+      receiver.image as "receiverImage",
+      (
+        SELECT COUNT(*) 
+        FROM "Message" unread
+        WHERE 
+          unread."senderId" = CASE 
+            WHEN rm."senderId" = ${userId} THEN rm."receiverId" 
+            ELSE rm."senderId" 
+          END
+          AND unread."receiverId" = ${userId}
+          AND unread."readAt" IS NULL
+      ) as "unreadCount"
+    FROM RankedMessages rm
+    JOIN "User" sender ON rm."senderId" = sender.id
+    JOIN "User" receiver ON rm."receiverId" = receiver.id
+    WHERE rn = 1
+    ORDER BY rm."createdAt" DESC
+  `;
+
+  // Format the conversations
+  return lastMessages.map(msg => {
+    const isUserSender = msg.senderId === userId;
+    const otherPersonId = isUserSender ? msg.receiverId : msg.senderId;
+    const otherPersonName = isUserSender ? msg.receiverName : msg.senderName;
+    const otherPersonImage = isUserSender ? msg.receiverImage : msg.senderImage;
+
+    return {
+      user: {
+        id: otherPersonId,
+        name: otherPersonName,
+        image: otherPersonImage,
+      },
+      lastMessage: {
+        id: msg.id,
+        text: msg.text,
+        sender_id: msg.senderId,
+        receiver_id: msg.receiverId,
+        created_at: msg.createdAt.toISOString(),
+        read_at: msg.readAt?.toISOString(),
+      },
+      unreadCount: Number(msg.unreadCount),
+    };
+  });
+}
+
+/**
  * Updates the conversation list for a user
+ * This is a public wrapper around the internal implementation
  */
 export async function updateConversationsForUser(
   userId: string
 ): Promise<boolean> {
   try {
-    // Get all messages where the user is either the sender or receiver
-    const conversationMessages = await prisma.message.findMany({
-      where: {
-        OR: [{ senderId: userId }, { receiverId: userId }],
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-          },
-        },
-        receiver: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-          },
-        },
-      },
-    });
-
-    // Get unique conversations
-    const uniqueConversations = new Map();
-
-    for (const message of conversationMessages) {
-      // Determine the other person in the conversation
-      const otherPersonId =
-        message.senderId === userId ? message.receiverId : message.senderId;
-
-      const otherPerson =
-        message.senderId === userId ? message.receiver : message.sender;
-
-      if (!uniqueConversations.has(otherPersonId)) {
-        // Count unread messages for this conversation
-        const unreadCount = await prisma.message.count({
-          where: {
-            senderId: otherPersonId,
-            receiverId: userId,
-            readAt: null,
-          },
-        });
-
-        uniqueConversations.set(otherPersonId, {
-          user: {
-            id: otherPerson.id,
-            name: otherPerson.name,
-            image: otherPerson.image,
-          },
-          lastMessage: {
-            id: message.id,
-            text: message.text,
-            sender_id: message.senderId,
-            receiver_id: message.receiverId,
-            created_at: message.createdAt.toISOString(),
-            read_at: message.readAt?.toISOString(),
-          },
-          unreadCount,
-        });
-      }
-    }
-
-    // Import dynamically to avoid circular dependencies
-    const { sendMessageToUser } = await import('../api/chat/sse/route');
-
-    // Send updated conversations to the user
-    sendMessageToUser(userId, {
+    const conversations = await updateConversationsForUserInternal(userId, prisma);
+    
+    await sendMessageToUser(userId, {
       type: 'conversations',
-      conversations: Array.from(uniqueConversations.values()),
+      conversations,
     });
-
+    
     return true;
   } catch (error) {
     console.error('Error updating conversations for user:', error);
@@ -397,9 +426,7 @@ export async function getChatMessages(otherUserId: string): Promise<Message[]> {
     throw new Error('Unauthorized');
   }
   
-  // Mark as read when loading messages
-  await markAsRead(otherUserId);
-  
-  // Get messages
+  // Get messages without automatically marking as read
+  // This prevents potential loops with markAsRead -> refreshChat -> getChatMessages
   return getMessages(otherUserId);
 }

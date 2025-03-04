@@ -48,10 +48,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ initialConversatio
 
   // Mark messages as read when conversation changes
   useEffect(() => {
-    if (currentConversation) {
+    // Only mark as read when conversation changes, not on every render
+    if (currentConversation && conversations.find(c => c.user.id === currentConversation)?.unreadCount > 0) {
       markAsRead(currentConversation);
     }
-  }, [currentConversation, markAsRead]);
+  }, [currentConversation, conversations, markAsRead]);
 
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);

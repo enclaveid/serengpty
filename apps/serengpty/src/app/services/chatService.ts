@@ -6,6 +6,7 @@ import {
 
 type MessageListener = (message: Message) => void;
 type ConversationListener = (conversations: Conversation[]) => void;
+type ConnectionStatusListener = (isConnected: boolean) => void;
 
 /**
  * Client-side SSE handler for real-time chat
@@ -16,15 +17,18 @@ class ChatService {
   private eventSource: EventSourcePolyfill | null = null;
   private messageListeners: Map<string, MessageListener[]> = new Map();
   private conversationListeners: ConversationListener[] = [];
+  private connectionStatusListeners: ConnectionStatusListener[] = [];
   private isConnected = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectInterval = 2000; // Start with 2 seconds
+  private autoReconnect = true;
 
   async connect(): Promise<void> {
     if (this.eventSource) {
       this.eventSource.close();
+      this.eventSource = null;
     }
 
     try {
@@ -39,6 +43,7 @@ class ChatService {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.clearReconnectTimer();
+        this.notifyConnectionStatusListeners(true);
       };
 
       this.eventSource.onmessage = (event) => {
@@ -49,6 +54,12 @@ class ChatService {
             this.notifyMessageListeners(data.message);
           } else if (data.type === 'conversations') {
             this.notifyConversationListeners(data.conversations);
+          } else if (data.type === 'heartbeat') {
+            // Heartbeat received, connection is alive
+            if (!this.isConnected) {
+              this.isConnected = true;
+              this.notifyConnectionStatusListeners(true);
+            }
           }
         } catch (error) {
           console.error('Error processing message:', error);
@@ -57,18 +68,32 @@ class ChatService {
 
       this.eventSource.onerror = (error) => {
         console.error('Chat connection error:', error);
+        const wasConnected = this.isConnected;
         this.isConnected = false;
-        this.handleDisconnect();
+        
+        if (wasConnected) {
+          this.notifyConnectionStatusListeners(false);
+        }
+        
+        if (this.autoReconnect) {
+          this.handleDisconnect();
+        }
       };
     } catch (error) {
       console.error('Failed to establish chat connection:', error);
-      this.handleDisconnect();
+      this.isConnected = false;
+      this.notifyConnectionStatusListeners(false);
+      
+      if (this.autoReconnect) {
+        this.handleDisconnect();
+      }
     }
   }
 
   private handleDisconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
+      // Exponential backoff with max of 30 seconds
       const delay = Math.min(30000, this.reconnectInterval * Math.pow(1.5, this.reconnectAttempts - 1));
       
       this.clearReconnectTimer();
@@ -81,9 +106,6 @@ class ChatService {
           this.eventSource = null;
         }
         
-        // Reset state to avoid stale data
-        this.isConnected = false;
-        
         // Attempt to reconnect
         this.connect().catch(err => {
           console.error("Reconnection attempt failed:", err);
@@ -92,6 +114,12 @@ class ChatService {
       }, delay);
     } else {
       console.error("Max reconnection attempts reached. Chat connection lost.");
+      // Reset reconnect attempts after a longer delay
+      this.clearReconnectTimer();
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectAttempts = 0;
+        this.handleDisconnect();
+      }, 60000); // Try again after 1 minute
     }
   }
 
@@ -103,27 +131,38 @@ class ChatService {
   }
 
   disconnect(): void {
+    this.autoReconnect = false;
+    
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
+    
     this.isConnected = false;
+    this.notifyConnectionStatusListeners(false);
     this.clearReconnectTimer();
     this.messageListeners.clear();
     this.conversationListeners = [];
+    this.connectionStatusListeners = [];
   }
 
   private notifyMessageListeners(message: Message): void {
-    // Determine conversation ID from the message
-    const conversationId = message.sender_id;
+    // Message can be received from either the sender or receiver
+    // Need to notify both conversation IDs (sender_id and receiver_id)
+    const senderListeners = this.messageListeners.get(message.sender_id) || [];
+    const receiverListeners = this.messageListeners.get(message.receiver_id) || [];
     
-    // Notify listeners for this conversation
-    const listeners = this.messageListeners.get(conversationId) || [];
-    listeners.forEach(listener => listener(message));
+    // Notify listeners for both conversations
+    senderListeners.forEach(listener => listener(message));
+    receiverListeners.forEach(listener => listener(message));
   }
 
   private notifyConversationListeners(conversations: Conversation[]): void {
     this.conversationListeners.forEach(listener => listener(conversations));
+  }
+  
+  private notifyConnectionStatusListeners(isConnected: boolean): void {
+    this.connectionStatusListeners.forEach(listener => listener(isConnected));
   }
 
   onNewMessage(conversationId: string, listener: MessageListener): () => void {
@@ -148,6 +187,22 @@ class ChatService {
     return () => {
       this.conversationListeners = this.conversationListeners.filter(l => l !== listener);
     };
+  }
+  
+  onConnectionStatus(listener: ConnectionStatusListener): () => void {
+    this.connectionStatusListeners.push(listener);
+    
+    // Immediately notify of current status
+    listener(this.isConnected);
+    
+    // Return unsubscribe function
+    return () => {
+      this.connectionStatusListeners = this.connectionStatusListeners.filter(l => l !== listener);
+    };
+  }
+  
+  getConnectionStatus(): boolean {
+    return this.isConnected;
   }
 }
 
