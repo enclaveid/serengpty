@@ -2,55 +2,48 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { StreamChat } from 'stream-chat';
+import { useChatUser } from './ChatUserContext';
+import { getChatService } from '../../services/chatService';
+import { sendMessage } from '../../actions/chatActions';
 
 export const useStartChat = () => {
+  const [isStarting, setIsStarting] = useState(false);
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const { user } = useChatUser();
 
-  const startChatWithUser = async (
-    currentUserId: string,
-    otherUserId: string,
-    chatClient: StreamChat | undefined,
-    otherUserName: string
-  ) => {
-    if (!chatClient) {
-      setError(new Error('Chat client not initialized'));
-      return null;
+  const startChat = async (userId: string, userName: string) => {
+    if (!user) {
+      router.push('/login');
+      return;
     }
 
     try {
-      setIsLoading(true);
-      setError(null);
+      setIsStarting(true);
 
-      // Create a channel ID based on the two user IDs
-      const channel = chatClient.channel('messaging', {
-        members: [currentUserId, otherUserId],
-        created_by_id: currentUserId,
-        name: `${otherUserName}`,
-      });
+      // Ensure chat service is initialized
+      if (user.id) {
+        const chatService = getChatService(user.id);
+        
+        // Send an initial message to create the conversation if it doesn't exist
+        // We use the server action directly to ensure it gets created on the server
+        const existingMessages = await chatService.getMessages(userId);
+        
+        if (existingMessages.length === 0) {
+          // Create a first message to start the conversation
+          await sendMessage(userId, `Hello, I'd like to chat with you!`);
+        }
+      }
 
-      await channel.watch();
-
-      // Navigate to the chat page with the specific channel ID
-      router.push(`/dashboard/chats?cid=${encodeURIComponent(channel.id)}`);
-
-      return channel;
-    } catch (err) {
-      const errorObj =
-        err instanceof Error ? err : new Error('Failed to start chat');
-      setError(errorObj);
-      console.error('Error starting chat:', errorObj);
-      return null;
+      // Navigate to chat page
+      router.push(`/dashboard/chats?userId=${userId}`);
+    } catch (error) {
+      console.error('Error starting chat:', error);
     } finally {
-      setIsLoading(false);
+      setIsStarting(false);
     }
   };
 
-  return {
-    startChatWithUser,
-    isLoading,
-    error,
-  };
+  return { startChat, isStarting };
 };
+
+export default useStartChat;

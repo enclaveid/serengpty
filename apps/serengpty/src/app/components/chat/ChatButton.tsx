@@ -1,72 +1,55 @@
 'use client';
 
+import React from 'react';
 import { Button } from '@enclaveid/ui/button';
-import { ChatBubbleIcon } from '@radix-ui/react-icons';
-import { useStreamChatUser } from './StreamChatUserContext';
-import { useChatClient } from '../../services/streamChat';
+import { useRouter } from 'next/navigation';
 import { useStartChat } from './useStartChat';
-import { toast } from 'sonner';
+import { useChatUser } from './ChatUserContext';
 
 interface ChatButtonProps {
-  otherUserId: string;
-  otherUserName: string;
-  variant?: 'default' | 'outline' | 'ghost';
+  userId: string;
+  userName: string;
+  variant?: 'default' | 'secondary' | 'outline' | 'ghost' | 'link' | 'destructive';
   size?: 'default' | 'sm' | 'lg' | 'icon';
   className?: string;
 }
 
-export function ChatButton({
-  otherUserId,
-  otherUserName,
+export const ChatButton: React.FC<ChatButtonProps> = ({
+  userId,
+  userName,
   variant = 'default',
-  size = 'sm',
+  size = 'default',
   className,
-}: ChatButtonProps) {
-  const { userId, userToken } = useStreamChatUser();
-  const { client } = useChatClient(userId, userToken);
-  const { startChatWithUser, isLoading, error } = useStartChat();
+}) => {
+  const router = useRouter();
+  const { user } = useChatUser();
+  const { startChat, isStarting } = useStartChat();
 
-  const handleClick = async () => {
-    if (!userId) {
-      toast.error('You must be logged in to start a chat');
+  const handleStartChat = async () => {
+    if (!user) {
+      router.push('/login');
       return;
     }
 
-    if (!otherUserId) {
-      toast.error('Cannot start chat with invalid user');
+    // Don't allow chatting with yourself
+    if (user.id === userId) {
       return;
     }
 
-    // Make sure client is initialized
-    if (!client) {
-      toast.error('Chat client not initialized. Please try again later.');
-      return;
-    }
-
-    try {
-      console.log('Starting chat with:', { userId, otherUserId });
-
-      const result = await startChatWithUser(userId, otherUserId, client, otherUserName);
-
-      if (!result) {
-        toast.error(`Failed to start chat${error ? `: ${error.message}` : ''}`);
-      }
-    } catch (err) {
-      console.error('Error in chat button:', err);
-      toast.error('Failed to start a chat. Please try again.');
-    }
+    await startChat(userId, userName);
   };
 
   return (
     <Button
+      onClick={handleStartChat}
+      disabled={isStarting || (user?.id === userId)}
       variant={variant}
       size={size}
-      onClick={handleClick}
-      disabled={isLoading}
       className={className}
     >
-      <ChatBubbleIcon className="mr-2 h-4 w-4" />
-      {isLoading ? 'Connecting...' : 'Message ' + otherUserName}
+      {isStarting ? 'Starting chat...' : 'Chat'}
     </Button>
   );
-}
+};
+
+export default ChatButton;

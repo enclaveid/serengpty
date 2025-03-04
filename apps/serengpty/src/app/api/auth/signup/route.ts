@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as bcrypt from 'bcrypt';
-import { prisma } from '../../../services/db/prisma';
+import prisma from '../../../services/db/prisma';
 import { azureContainerClient } from '../../../services/azure/storage';
 import path from 'path';
 import fs from 'fs';
 import { getUniqueUsername } from '../../../actions/getUniqueUsername';
-import { createStreamChatUser } from '../../../services/streamChat';
 
 /**
  * Anonymous user signup API endpoint
@@ -71,8 +70,6 @@ export async function POST(request: NextRequest) {
         conversationsJson
       );
     }
-
-    await createStreamChatUser(user.id);
 
     return NextResponse.json({
       success: true,

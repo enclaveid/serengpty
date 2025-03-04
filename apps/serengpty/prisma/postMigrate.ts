@@ -1,11 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { StreamChat } from 'stream-chat';
-
-const streamChatClient = StreamChat.getInstance(
-  process.env.NEXT_PUBLIC_STREAM_CHAT_API_KEY!,
-  process.env.STREAM_CHAT_API_SECRET
-);
 
 // Seed the database with some test data
 const seed = async (prisma: PrismaClient): Promise<string[]> => {
@@ -430,13 +424,6 @@ const seed = async (prisma: PrismaClient): Promise<string[]> => {
   try {
     console.log('Seeding database...');
     const userIds = await seed(prisma);
-
-    console.log('Creating Stream Chat users...');
-    await Promise.all(
-      userIds.map((userId) =>
-        streamChatClient.upsertUser({ id: userId, role: 'user' })
-      )
-    );
 
     await prisma.$disconnect();
   } catch (e) {
