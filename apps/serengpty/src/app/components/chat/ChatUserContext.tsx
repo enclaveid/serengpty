@@ -1,11 +1,15 @@
+/**
+ * This file is retained for backward compatibility but is no longer used
+ * All user state is now handled server-side through server actions
+ */
+
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Session, User } from 'next-auth';
-import { getChatService } from '../../services/chatService';
+import React, { createContext, useContext } from 'react';
+import { useChat } from './ChatProvider';
 
+// Legacy context type - kept for backward compatibility
 interface ChatUserContextType {
-  user: User | null;
   isLoading: boolean;
   unreadCounts: { [userId: string]: number };
   totalUnreadCount: number;
@@ -13,7 +17,6 @@ interface ChatUserContextType {
 }
 
 const defaultContextValue: ChatUserContextType = {
-  user: null,
   isLoading: true,
   unreadCounts: {},
   totalUnreadCount: 0,
@@ -22,79 +25,16 @@ const defaultContextValue: ChatUserContextType = {
 
 const ChatUserContext = createContext<ChatUserContextType>(defaultContextValue);
 
-export const useChatUser = () => useContext(ChatUserContext);
-
-interface ChatUserProviderProps {
-  children: React.ReactNode;
-  session: Session | null;
-}
-
-export const ChatUserProvider = ({ children, session }: ChatUserProviderProps) => {
-  const [state, setState] = useState<ChatUserContextType>(defaultContextValue);
-
-  useEffect(() => {
-    const initializeUser = async () => {
-      try {
-        if (!session?.user) {
-          setState({
-            ...state,
-            isLoading: false,
-          });
-          return;
-        }
-
-        // Initialize user with session data
-        setState({
-          ...state,
-          user: session.user,
-          isLoading: false,
-        });
-
-        // Initialize chat service
-        const chatService = getChatService();
-        
-        // Fetch initial conversations and setup unread count listener
-        await chatService.connect();
-        
-        // Setup listener for conversation updates to track unread messages
-        chatService.onConversationsUpdate((conversations) => {
-          const unreadCounts: { [userId: string]: number } = {};
-          let totalUnreadCount = 0;
-          
-          conversations.forEach(conversation => {
-            unreadCounts[conversation.user.id] = conversation.unreadCount;
-            totalUnreadCount += conversation.unreadCount;
-          });
-          
-          setState(prev => ({
-            ...prev,
-            unreadCounts,
-            totalUnreadCount,
-          }));
-        });
-      } catch (error) {
-        console.error('Error initializing chat user:', error);
-        setState({
-          ...state,
-          error: error instanceof Error ? error : new Error('Unknown error'),
-          isLoading: false,
-        });
-      }
-    };
-
-    initializeUser();
-
-    // Cleanup
-    return () => {
-      // The chat service instance will be cleaned up when needed
-    };
-  }, [session]);
-
-  return (
-    <ChatUserContext.Provider value={state}>
-      {children}
-    </ChatUserContext.Provider>
-  );
+// Adapter to convert new ChatContext interface to the old ChatUserContext interface
+export const useChatUser = () => {
+  const chatState = useChat();
+  
+  return {
+    isLoading: chatState.isLoading,
+    unreadCounts: chatState.unreadCounts,
+    totalUnreadCount: chatState.totalUnreadCount,
+    error: null,
+  };
 };
 
 export default ChatUserContext;

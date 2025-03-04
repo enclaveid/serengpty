@@ -1,18 +1,28 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useChatUser } from './ChatUserContext';
 import { getChatService, resetChatService } from '../../services/chatService';
-import type { Message, Conversation } from '../../actions/chatActions';
+import { 
+  sendMessage as sendMessageAction, 
+  markAsRead as markAsReadAction,
+  getChatMessages,
+  getChatState,
+  type Message, 
+  type Conversation 
+} from '../../actions/chatActions';
 
 interface ChatContextType {
   isConnected: boolean;
   conversations: Conversation[];
   currentConversation: string | null;
   messages: Map<string, Message[]>;
+  unreadCounts: { [userId: string]: number };
+  totalUnreadCount: number;
+  isLoading: boolean;
   setCurrentConversation: (userId: string | null) => void;
   sendMessage: (receiverId: string, text: string) => Promise<Message | null>;
   markAsRead: (otherUserId: string) => Promise<void>;
+  refreshChat: () => Promise<void>;
 }
 
 const defaultContextValue: ChatContextType = {
@@ -20,9 +30,13 @@ const defaultContextValue: ChatContextType = {
   conversations: [],
   currentConversation: null,
   messages: new Map(),
+  unreadCounts: {},
+  totalUnreadCount: 0,
+  isLoading: true,
   setCurrentConversation: () => {},
   sendMessage: async () => null,
   markAsRead: async () => {},
+  refreshChat: async () => {},
 };
 
 const ChatContext = createContext<ChatContextType>(defaultContextValue);
@@ -34,162 +48,200 @@ interface ChatProviderProps {
 }
 
 export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
-  const { user } = useChatUser();
-  const [isConnected, setIsConnected] = useState(false);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversation, setCurrentConversation] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Map<string, Message[]>>(new Map());
+  const [state, setState] = useState<Omit<ChatContextType, 'setCurrentConversation' | 'sendMessage' | 'markAsRead' | 'refreshChat'>>({
+    isConnected: false,
+    conversations: [],
+    currentConversation: null,
+    messages: new Map(),
+    unreadCounts: {},
+    totalUnreadCount: 0,
+    isLoading: true,
+  });
 
-  // Initialize chat when user changes
-  useEffect(() => {
-    if (!user) {
-      resetChatService();
-      setIsConnected(false);
-      setConversations([]);
-      setMessages(new Map());
-      return;
+  // Load initial chat state from server
+  const loadChatState = async () => {
+    try {
+      const chatState = await getChatState();
+      setState(prev => ({
+        ...prev,
+        ...chatState,
+      }));
+    } catch (error) {
+      console.error("Error loading chat state:", error);
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+      }));
     }
+  };
 
-    const chatService = getChatService();
+  // Refresh chat state - called after actions
+  const refreshChat = async () => {
+    await loadChatState();
+    if (state.currentConversation) {
+      await loadMessages(state.currentConversation);
+    }
+  };
+
+  // Load messages for a conversation
+  const loadMessages = async (userId: string) => {
+    if (!userId) return;
     
-    // Connect to chat
+    try {
+      // Show loading state
+      setState(prev => {
+        const newMessages = new Map(prev.messages);
+        newMessages.set(userId, []);
+        return { ...prev, messages: newMessages };
+      });
+      
+      // Get messages from server
+      const messages = await getChatMessages(userId);
+      
+      setState(prev => {
+        const newMessages = new Map(prev.messages);
+        newMessages.set(userId, messages);
+        return { ...prev, messages: newMessages };
+      });
+    } catch (error) {
+      console.error("Error loading messages:", error);
+    }
+  };
+
+  // Initialize chat service
+  useEffect(() => {
+    // Load initial state
+    loadChatState();
+    
+    // Connect to chat service
+    const chatService = getChatService();
     let isMounted = true;
+    
     chatService.connect()
       .then(() => {
         if (isMounted) {
-          setIsConnected(true);
+          setState(prev => ({ ...prev, isConnected: true }));
         }
       })
       .catch(error => {
         console.error("Failed to connect to chat service:", error);
-        if (isMounted) {
-          setIsConnected(false);
-        }
       });
-
+    
     // Set up listeners
     const conversationsListener = chatService.onConversationsUpdate((newConversations) => {
       if (isMounted) {
-        setConversations(prev => {
-          // Check if they're actually different to avoid unnecessary rerenders
-          if (JSON.stringify(prev) === JSON.stringify(newConversations)) {
-            return prev;
-          }
-          return newConversations;
+        // Update conversations
+        setState(prev => {
+          // Calculate total unread count
+          const totalUnreadCount = newConversations.reduce((total, conv) => total + conv.unreadCount, 0);
+          
+          // Build unread counts by user
+          const unreadCounts: { [userId: string]: number } = {};
+          newConversations.forEach(conversation => {
+            unreadCounts[conversation.user.id] = conversation.unreadCount;
+          });
+          
+          return {
+            ...prev,
+            conversations: newConversations,
+            unreadCounts,
+            totalUnreadCount,
+          };
         });
       }
     });
-
-    // Cleanup
+    
+    // Clean up on unmount
     return () => {
       isMounted = false;
       conversationsListener();
+      resetChatService();
     };
-  }, [user]);
-
-  // Load messages for current conversation
+  }, []);
+  
+  // Load messages when current conversation changes
   useEffect(() => {
-    if (!currentConversation || !user) return;
-
+    if (!state.currentConversation) return;
+    
+    // Load messages for current conversation
+    loadMessages(state.currentConversation);
+    
+    // Set up message listener for current conversation
     const chatService = getChatService();
-    let isMounted = true;
-    
-    // Show loading state
-    const loadingState: Message[] = [];
-    setMessages(prev => {
-      const newMessages = new Map(prev);
-      newMessages.set(currentConversation, loadingState);
-      return newMessages;
-    });
-    
-    // Load initial messages
-    chatService.getMessages(currentConversation)
-      .then((conversationMessages) => {
-        if (isMounted) {
-          setMessages(prev => {
-            const newMessages = new Map(prev);
-            newMessages.set(currentConversation, conversationMessages);
-            return newMessages;
-          });
+    const messageListener = chatService.onNewMessage(state.currentConversation, (newMessage) => {
+      setState(prev => {
+        const conversationMessages = prev.messages.get(state.currentConversation!) || [];
+        
+        // Prevent duplicate messages
+        const isDuplicate = conversationMessages.some(
+          msg => msg.id === newMessage.id || 
+                (msg.text === newMessage.text && 
+                msg.sender_id === newMessage.sender_id &&
+                msg.receiver_id === newMessage.receiver_id)
+        );
+        
+        if (isDuplicate) {
+          return prev;
         }
-      })
-      .catch(error => {
-        console.error("Error loading messages:", error);
-        if (isMounted) {
-          // Keep previous messages if there are any, or show empty
-          setMessages(prev => {
-            const existing = prev.get(currentConversation);
-            if (existing && existing !== loadingState) {
-              return prev;
-            }
-            const newMessages = new Map(prev);
-            newMessages.set(currentConversation, []);
-            return newMessages;
-          });
-        }
+        
+        const newMessages = new Map(prev.messages);
+        newMessages.set(state.currentConversation!, [...conversationMessages, newMessage]);
+        
+        return {
+          ...prev,
+          messages: newMessages,
+        };
       });
-
-    // Set up message listener
-    const messageListener = chatService.onNewMessage(currentConversation, (newMessage) => {
-      if (isMounted) {
-        setMessages(prev => {
-          const conversationMessages = prev.get(currentConversation) || [];
-          // Prevent duplicate messages
-          const isDuplicate = conversationMessages.some(
-            msg => msg.id === newMessage.id || 
-                 (msg.text === newMessage.text && 
-                  msg.sender_id === newMessage.sender_id &&
-                  msg.receiver_id === newMessage.receiver_id)
-          );
-          
-          if (isDuplicate) {
-            return prev;
-          }
-          
-          const newMessages = new Map(prev);
-          newMessages.set(currentConversation, [...conversationMessages, newMessage]);
-          return newMessages;
-        });
-      }
     });
-
-    // Mark as read when conversation is opened
-    chatService.markAsRead(currentConversation).catch(error => {
-      console.error("Error marking messages as read:", error);
-    });
-
+    
     return () => {
-      isMounted = false;
       messageListener();
     };
-  }, [currentConversation, user]);
-
-  const sendMessage = async (receiverId: string, text: string): Promise<Message | null> => {
-    if (!user) return null;
-    const chatService = getChatService();
-    const result = await chatService.sendMessage(receiverId, text);
-    if (!result) {
-      throw new Error("Failed to send message");
+  }, [state.currentConversation]);
+  
+  // Set current conversation
+  const setCurrentConversation = async (userId: string | null) => {
+    setState(prev => ({ ...prev, currentConversation: userId }));
+    
+    if (userId) {
+      // Mark as read when opening a conversation
+      try {
+        await markAsReadAction(userId);
+        await refreshChat();
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+      }
     }
-    return result;
   };
-
+  
+  // Send message
+  const sendMessage = async (receiverId: string, text: string): Promise<Message | null> => {
+    try {
+      return await sendMessageAction(receiverId, text);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      return null;
+    }
+  };
+  
+  // Mark as read
   const markAsRead = async (otherUserId: string): Promise<void> => {
-    if (!user) return;
-    const chatService = getChatService();
-    return chatService.markAsRead(otherUserId);
+    try {
+      await markAsReadAction(otherUserId);
+      await refreshChat();
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+    }
   };
 
   return (
     <ChatContext.Provider
       value={{
-        isConnected,
-        conversations,
-        currentConversation,
-        messages,
+        ...state,
         setCurrentConversation,
         sendMessage,
         markAsRead,
+        refreshChat,
       }}
     >
       {children}

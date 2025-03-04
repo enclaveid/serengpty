@@ -1,10 +1,5 @@
 import { EventSourcePolyfill } from 'event-source-polyfill';
 import { 
-  getMessages as getMessagesAction, 
-  sendMessage as sendMessageAction,
-  markAsRead as markAsReadAction,
-  getConversations as getConversationsAction,
-  getCurrentUserId,
   type Message,
   type Conversation
 } from '../actions/chatActions';
@@ -12,20 +7,20 @@ import {
 type MessageListener = (message: Message) => void;
 type ConversationListener = (conversations: Conversation[]) => void;
 
+/**
+ * Client-side SSE handler for real-time chat
+ * No user state is kept here - all user-specific operations
+ * are handled by server actions directly
+ */
 class ChatService {
   private eventSource: EventSourcePolyfill | null = null;
   private messageListeners: Map<string, MessageListener[]> = new Map();
   private conversationListeners: ConversationListener[] = [];
-  private conversations: Map<string, Message[]> = new Map();
   private isConnected = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectInterval = 2000; // Start with 2 seconds
-  
-  constructor() {
-    // No longer storing user ID here
-  }
 
   async connect(): Promise<void> {
     if (this.eventSource) {
@@ -33,12 +28,6 @@ class ChatService {
     }
 
     try {
-      // Get current user ID from server
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        throw new Error('Not authenticated');
-      }
-
       // Create SSE connection
       this.eventSource = new EventSourcePolyfill(`/api/chat/sse`, {
         withCredentials: true,
@@ -57,7 +46,7 @@ class ChatService {
           const data = JSON.parse(event.data);
           
           if (data.type === 'message') {
-            this.handleNewMessage(data.message);
+            this.notifyMessageListeners(data.message);
           } else if (data.type === 'conversations') {
             this.notifyConversationListeners(data.conversations);
           }
@@ -71,9 +60,6 @@ class ChatService {
         this.isConnected = false;
         this.handleDisconnect();
       };
-
-      // Fetch initial conversations
-      await this.fetchConversations();
     } catch (error) {
       console.error('Failed to establish chat connection:', error);
       this.handleDisconnect();
@@ -127,96 +113,11 @@ class ChatService {
     this.conversationListeners = [];
   }
 
-  async fetchConversations(): Promise<Conversation[]> {
-    try {
-      const conversations = await getConversationsAction();
-      this.notifyConversationListeners(conversations);
-      return conversations;
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
-      return [];
-    }
-  }
-
-  async getMessages(otherUserId: string): Promise<Message[]> {
-    if (this.conversations.has(otherUserId)) {
-      return this.conversations.get(otherUserId) || [];
-    }
-
-    try {
-      const messages = await getMessagesAction(otherUserId);
-      this.conversations.set(otherUserId, messages);
-      return messages;
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      return [];
-    }
-  }
-
-  async sendMessage(receiverId: string, text: string): Promise<Message | null> {
-    try {
-      // Send to server using server action
-      const confirmedMessage = await sendMessageAction(receiverId, text);
-      
-      // Once confirmed, add to local messages if the server didn't already send it via SSE
-      if (confirmedMessage) {
-        const existingMessages = this.conversations.get(receiverId) || [];
-        const messageExists = existingMessages.some(
-          msg => msg.id === confirmedMessage.id || 
-                (msg.text === confirmedMessage.text && 
-                 msg.sender_id === confirmedMessage.sender_id &&
-                 msg.receiver_id === confirmedMessage.receiver_id)
-        );
-        
-        if (!messageExists) {
-          this.addMessageToConversation(receiverId, confirmedMessage);
-        }
-      }
-      
-      return confirmedMessage;
-    } catch (error) {
-      console.error('Error sending message:', error);
-      return null;
-    }
-  }
-
-  async markAsRead(otherUserId: string): Promise<void> {
-    try {
-      await markAsReadAction(otherUserId);
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  }
-
-  private async handleNewMessage(message: Message): Promise<void> {
-    try {
-      // Get current user ID to determine conversation
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        return;
-      }
-
-      // Determine which conversation this belongs to
-      const conversationId = message.sender_id === userId 
-        ? message.receiver_id 
-        : message.sender_id;
-
-      // Add to local conversation
-      this.addMessageToConversation(conversationId, message);
-      
-      // Notify listeners
-      this.notifyMessageListeners(conversationId, message);
-    } catch (error) {
-      console.error('Error handling new message:', error);
-    }
-  }
-
-  private addMessageToConversation(conversationId: string, message: Message): void {
-    const currentMessages = this.conversations.get(conversationId) || [];
-    this.conversations.set(conversationId, [...currentMessages, message]);
-  }
-
-  private notifyMessageListeners(conversationId: string, message: Message): void {
+  private notifyMessageListeners(message: Message): void {
+    // Determine conversation ID from the message
+    const conversationId = message.sender_id;
+    
+    // Notify listeners for this conversation
     const listeners = this.messageListeners.get(conversationId) || [];
     listeners.forEach(listener => listener(message));
   }

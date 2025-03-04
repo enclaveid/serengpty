@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from './getCurrentUser';
 import prisma from '../services/db/prisma';
+import { sendMessageToUser } from '../api/chat/sse/route';
 
 export interface Message {
   id?: string;
@@ -184,9 +185,6 @@ export async function sendMessage(
 
   // Notify both users about the new message via SSE
   try {
-    // Import dynamically to avoid circular dependencies
-    const { sendMessageToUser } = await import('../api/chat/sse/route');
-
     // Notify the sender
     sendMessageToUser(currentUserId, {
       type: 'message',
@@ -356,4 +354,52 @@ export async function updateConversationsForUser(
 export async function getCurrentUserId(): Promise<string | null> {
   const currentUser = await getCurrentUser();
   return currentUser?.id || null;
+}
+
+/**
+ * Get the current chat state for a user
+ * Combines conversations and unread message counts
+ */
+export async function getChatState() {
+  const currentUser = await getCurrentUser();
+  
+  if (!currentUser?.id) {
+    throw new Error('Unauthorized');
+  }
+  
+  // Get all conversations
+  const conversations = await getConversations();
+  
+  // Calculate total unread count
+  const totalUnreadCount = conversations.reduce((total, conv) => total + conv.unreadCount, 0);
+  
+  // Build unread counts by user
+  const unreadCounts: { [userId: string]: number } = {};
+  conversations.forEach(conversation => {
+    unreadCounts[conversation.user.id] = conversation.unreadCount;
+  });
+  
+  return {
+    conversations,
+    unreadCounts,
+    totalUnreadCount,
+    isLoading: false,
+  };
+}
+
+/**
+ * Get messages for a specific conversation
+ */
+export async function getChatMessages(otherUserId: string): Promise<Message[]> {
+  const currentUser = await getCurrentUser();
+  
+  if (!currentUser?.id) {
+    throw new Error('Unauthorized');
+  }
+  
+  // Mark as read when loading messages
+  await markAsRead(otherUserId);
+  
+  // Get messages
+  return getMessages(otherUserId);
 }

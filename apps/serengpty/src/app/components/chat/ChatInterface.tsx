@@ -2,14 +2,12 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from './ChatProvider';
-import { useChatUser } from './ChatUserContext';
 import { Avatar } from '@enclaveid/ui/avatar';
-import { Card } from '@enclaveid/ui/card';
 import { Input } from '@enclaveid/ui/input';
 import { Button } from '@enclaveid/ui/button';
-import { Separator } from '@enclaveid/ui/separator';
 import { formatDistanceToNow } from 'date-fns';
 import { getIdenticon } from '../../utils/getIdenticon';
+import { getCurrentUserId } from '../../actions/chatActions';
 
 interface ChatInterfaceProps {
   initialConversationId?: string;
@@ -24,9 +22,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ initialConversatio
     sendMessage,
     markAsRead
   } = useChat();
-  const { user } = useChatUser();
+  
   const [messageText, setMessageText] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Load current user ID from server
+  useEffect(() => {
+    getCurrentUserId().then(userId => {
+      setCurrentUserId(userId);
+    });
+  }, []);
   
   // Set initial conversation if provided
   useEffect(() => {
@@ -148,10 +154,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ initialConversatio
                   <div key={message.id || i} className="flex flex-col">
                     <div 
                       className={`flex items-start ${
-                        message.sender_id === user?.id ? 'justify-end' : 'justify-start'
+                        message.sender_id === currentUserId ? 'justify-end' : 'justify-start'
                       }`}
                     >
-                      {message.sender_id !== user?.id && (
+                      {message.sender_id !== currentUserId && (
                         <Avatar className="h-8 w-8 mr-2">
                           <img
                             src={currentConversationData?.user.image || getIdenticon(message.sender_id)}
@@ -161,7 +167,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ initialConversatio
                       )}
                       <div
                         className={`max-w-[70%] p-3 rounded-lg ${
-                          message.sender_id === user?.id
+                          message.sender_id === currentUserId
                             ? 'bg-blue-500 text-white'
                             : 'bg-gray-200 dark:bg-gray-700'
                         }`}
@@ -171,7 +177,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ initialConversatio
                         </div>
                         <div 
                           className={`text-xs mt-1 ${
-                            message.sender_id === user?.id
+                            message.sender_id === currentUserId
                               ? 'text-blue-100'
                               : 'text-gray-500 dark:text-gray-400'
                           }`}

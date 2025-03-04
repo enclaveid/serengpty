@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getChatService } from '../../services/chatService';
-import { sendMessage } from '../../actions/chatActions';
+import { sendMessage, getMessages } from '../../actions/chatActions';
 
 export const useStartChat = () => {
   const [isStarting, setIsStarting] = useState(false);
@@ -13,15 +12,11 @@ export const useStartChat = () => {
     try {
       setIsStarting(true);
 
-      // Get chat service
-      const chatService = getChatService();
-
-      // Check if there are existing messages
-      const existingMessages = await chatService.getMessages(userId);
+      // Check if there are existing messages using server action
+      const existingMessages = await getMessages(userId);
 
       if (existingMessages.length === 0) {
         // Create a first message to start the conversation
-        // We use the server action directly to ensure it gets created on the server
         await sendMessage(userId, `Hello, I'd like to chat with you!`);
       }
 
