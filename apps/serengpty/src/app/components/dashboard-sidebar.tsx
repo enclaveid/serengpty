@@ -6,12 +6,9 @@ import {
   ChatBubbleIcon,
   MixerHorizontalIcon,
 } from '@radix-ui/react-icons';
-import { useStreamChatUser } from './chat/StreamChatUserContext';
 import { LogoutButton } from './logout-button';
 
 export function DashboardSidebar() {
-  const { unreadCount } = useStreamChatUser();
-  
   const sidebarItems = {
     navMain: [
       {
@@ -26,7 +23,6 @@ export function DashboardSidebar() {
             title: 'Chats',
             url: '/dashboard/chats',
             icon: <ChatBubbleIcon />,
-            badge: unreadCount > 0 ? unreadCount : undefined,
           },
         ],
       },
@@ -44,9 +40,6 @@ export function DashboardSidebar() {
   };
 
   return (
-    <AppSidebar
-      LogoutButton={<LogoutButton />}
-      sidebarItems={sidebarItems}
-    />
+    <AppSidebar LogoutButton={<LogoutButton />} sidebarItems={sidebarItems} />
   );
 }

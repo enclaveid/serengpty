@@ -4,7 +4,7 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const prisma =
+export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     datasources: {
@@ -29,10 +29,10 @@ globalForPrisma.prisma = prisma;
 prisma.$use(async (params, next) => {
   // Run the query
   const result = await next(params);
-  
+
   // Handle message updates after the operation completes
   // This is handled directly in server actions now
-  
+
   return result;
 });
 */

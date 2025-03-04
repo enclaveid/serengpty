@@ -4,6 +4,7 @@ import {
   sendMessage as sendMessageAction,
   markAsRead as markAsReadAction,
   getConversations as getConversationsAction,
+  getCurrentUserId,
   type Message,
   type Conversation
 } from '../actions/chatActions';
@@ -12,7 +13,6 @@ type MessageListener = (message: Message) => void;
 type ConversationListener = (conversations: Conversation[]) => void;
 
 class ChatService {
-  private userId: string;
   private eventSource: EventSourcePolyfill | null = null;
   private messageListeners: Map<string, MessageListener[]> = new Map();
   private conversationListeners: ConversationListener[] = [];
@@ -23,8 +23,8 @@ class ChatService {
   private maxReconnectAttempts = 10;
   private reconnectInterval = 2000; // Start with 2 seconds
   
-  constructor(userId: string) {
-    this.userId = userId;
+  constructor() {
+    // No longer storing user ID here
   }
 
   async connect(): Promise<void> {
@@ -33,8 +33,14 @@ class ChatService {
     }
 
     try {
+      // Get current user ID from server
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('Not authenticated');
+      }
+
       // Create SSE connection
-      this.eventSource = new EventSourcePolyfill(`/api/chat/sse?userId=${this.userId}`, {
+      this.eventSource = new EventSourcePolyfill(`/api/chat/sse`, {
         withCredentials: true,
         heartbeatTimeout: 60000,
       });
@@ -133,8 +139,14 @@ class ChatService {
 
   async sendMessage(receiverId: string, text: string): Promise<Message | null> {
     try {
+      // Get current user ID to create optimistic message
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('Not authenticated');
+      }
+
       const message = {
-        sender_id: this.userId,
+        sender_id: userId,
         receiver_id: receiverId,
         text,
         created_at: new Date().toISOString(),
@@ -160,17 +172,27 @@ class ChatService {
     }
   }
 
-  private handleNewMessage(message: Message): void {
-    // Determine which conversation this belongs to
-    const conversationId = message.sender_id === this.userId 
-      ? message.receiver_id 
-      : message.sender_id;
+  private async handleNewMessage(message: Message): Promise<void> {
+    try {
+      // Get current user ID to determine conversation
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        return;
+      }
 
-    // Add to local conversation
-    this.addMessageToConversation(conversationId, message);
-    
-    // Notify listeners
-    this.notifyMessageListeners(conversationId, message);
+      // Determine which conversation this belongs to
+      const conversationId = message.sender_id === userId 
+        ? message.receiver_id 
+        : message.sender_id;
+
+      // Add to local conversation
+      this.addMessageToConversation(conversationId, message);
+      
+      // Notify listeners
+      this.notifyMessageListeners(conversationId, message);
+    } catch (error) {
+      console.error('Error handling new message:', error);
+    }
   }
 
   private addMessageToConversation(conversationId: string, message: Message): void {
@@ -215,9 +237,9 @@ class ChatService {
 // Service instance cache
 let chatServiceInstance: ChatService | null = null;
 
-export const getChatService = (userId: string): ChatService => {
+export const getChatService = (): ChatService => {
   if (!chatServiceInstance) {
-    chatServiceInstance = new ChatService(userId);
+    chatServiceInstance = new ChatService();
   }
   return chatServiceInstance;
 };

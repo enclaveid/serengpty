@@ -8,7 +8,6 @@ import {
   SidebarTrigger,
 } from '@enclaveid/ui/sidebar';
 import { DashboardBreadcrumb } from '../../components/dashboard-breadcrumb';
-import { StreamChatUserProvider } from '../../components/chat/StreamChatUserContext';
 
 // Import our new component
 import { DashboardSidebar } from '../../components/dashboard-sidebar';
@@ -32,9 +31,5 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
 
 // Export the wrapped component
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <StreamChatUserProvider>
-      <DashboardLayout>{children}</DashboardLayout>
-    </StreamChatUserProvider>
-  );
+  return <DashboardLayout>{children}</DashboardLayout>;
 }

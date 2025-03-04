@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { auth } from '../services/auth';
+import { getCurrentUser } from './getCurrentUser';
 import prisma from '../services/db/prisma';
 import { ResponseSender } from '../api/chat/sse/route';
 
@@ -28,13 +28,13 @@ export interface Conversation {
  * Gets conversations for the current user
  */
 export async function getConversations(): Promise<Conversation[]> {
-  const session = await auth();
+  const currentUser = await getCurrentUser();
   
-  if (!session?.user?.id) {
+  if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
 
-  const currentUserId = session.user.id;
+  const currentUserId = currentUser.id;
 
   // Get all messages where the current user is either the sender or receiver
   const conversationMessages = await prisma.message.findMany({
@@ -114,13 +114,13 @@ export async function getConversations(): Promise<Conversation[]> {
  * Gets messages between the current user and another user
  */
 export async function getMessages(otherUserId: string): Promise<Message[]> {
-  const session = await auth();
+  const currentUser = await getCurrentUser();
   
-  if (!session?.user?.id) {
+  if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
 
-  const currentUserId = session.user.id;
+  const currentUserId = currentUser.id;
 
   // Get messages between the two users
   const messages = await prisma.message.findMany({
@@ -150,13 +150,13 @@ export async function getMessages(otherUserId: string): Promise<Message[]> {
  * Sends a message from the current user to another user
  */
 export async function sendMessage(receiverId: string, text: string): Promise<Message | null> {
-  const session = await auth();
+  const currentUser = await getCurrentUser();
   
-  if (!session?.user?.id) {
+  if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
 
-  const currentUserId = session.user.id;
+  const currentUserId = currentUser.id;
   
   // Create message
   const message = await prisma.message.create({
@@ -211,13 +211,13 @@ export async function sendMessage(receiverId: string, text: string): Promise<Mes
  * Marks messages from another user as read
  */
 export async function markAsRead(otherUserId: string): Promise<boolean> {
-  const session = await auth();
+  const currentUser = await getCurrentUser();
   
-  if (!session?.user?.id) {
+  if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
 
-  const currentUserId = session.user.id;
+  const currentUserId = currentUser.id;
 
   // Mark all unread messages from other user as read
   await prisma.message.updateMany({
@@ -346,4 +346,12 @@ export async function updateConversationsForUser(userId: string): Promise<boolea
     console.error('Error updating conversations for user:', error);
     return false;
   }
+}
+
+/**
+ * Gets the current user's ID - safer than passing it client-side
+ */
+export async function getCurrentUserId(): Promise<string | null> {
+  const currentUser = await getCurrentUser();
+  return currentUser?.id || null;
 }

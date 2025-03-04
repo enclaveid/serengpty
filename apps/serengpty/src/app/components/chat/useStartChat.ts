@@ -20,18 +20,16 @@ export const useStartChat = () => {
     try {
       setIsStarting(true);
 
-      // Ensure chat service is initialized
-      if (user.id) {
-        const chatService = getChatService(user.id);
-        
-        // Send an initial message to create the conversation if it doesn't exist
+      // Get chat service
+      const chatService = getChatService();
+      
+      // Check if there are existing messages
+      const existingMessages = await chatService.getMessages(userId);
+      
+      if (existingMessages.length === 0) {
+        // Create a first message to start the conversation
         // We use the server action directly to ensure it gets created on the server
-        const existingMessages = await chatService.getMessages(userId);
-        
-        if (existingMessages.length === 0) {
-          // Create a first message to start the conversation
-          await sendMessage(userId, `Hello, I'd like to chat with you!`);
-        }
+        await sendMessage(userId, `Hello, I'd like to chat with you!`);
       }
 
       // Navigate to chat page

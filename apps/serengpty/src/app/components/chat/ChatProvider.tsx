@@ -42,13 +42,13 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
 
   // Initialize chat when user changes
   useEffect(() => {
-    if (!user?.id) {
+    if (!user) {
       resetChatService();
       setIsConnected(false);
       return;
     }
 
-    const chatService = getChatService(user.id);
+    const chatService = getChatService();
     
     // Connect to chat
     chatService.connect().then(() => {
@@ -64,13 +64,13 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     return () => {
       conversationsListener();
     };
-  }, [user?.id]);
+  }, [user]);
 
   // Load messages for current conversation
   useEffect(() => {
-    if (!currentConversation || !user?.id) return;
+    if (!currentConversation || !user) return;
 
-    const chatService = getChatService(user.id);
+    const chatService = getChatService();
     
     // Load initial messages
     chatService.getMessages(currentConversation).then((conversationMessages) => {
@@ -97,17 +97,17 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     return () => {
       messageListener();
     };
-  }, [currentConversation, user?.id]);
+  }, [currentConversation, user]);
 
   const sendMessage = async (receiverId: string, text: string): Promise<Message | null> => {
-    if (!user?.id) return null;
-    const chatService = getChatService(user.id);
+    if (!user) return null;
+    const chatService = getChatService();
     return chatService.sendMessage(receiverId, text);
   };
 
   const markAsRead = async (otherUserId: string): Promise<void> => {
-    if (!user?.id) return;
-    const chatService = getChatService(user.id);
+    if (!user) return;
+    const chatService = getChatService();
     return chatService.markAsRead(otherUserId);
   };
 

@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { getCurrentUser } from '../../../actions/getCurrentUser';
 import { Readable } from 'stream';
 
 // Map of open connections by userId
@@ -10,12 +9,12 @@ export type ResponseSender = (data: string) => void;
 
 export async function GET(request: NextRequest) {
   // Authentication
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser?.id) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const userId = session.user.id;
+  const userId = currentUser.id;
   
   // Create a text/event-stream response
   const responseStream = new ReadableStream({

@@ -50,30 +50,28 @@ export const ChatUserProvider = ({ children, session }: ChatUserProviderProps) =
           isLoading: false,
         });
 
-        // Initialize chat service if user is logged in
-        if (session.user.id) {
-          const chatService = getChatService(session.user.id);
+        // Initialize chat service
+        const chatService = getChatService();
+        
+        // Fetch initial conversations and setup unread count listener
+        await chatService.connect();
+        
+        // Setup listener for conversation updates to track unread messages
+        chatService.onConversationsUpdate((conversations) => {
+          const unreadCounts: { [userId: string]: number } = {};
+          let totalUnreadCount = 0;
           
-          // Fetch initial conversations and setup unread count listener
-          await chatService.connect();
-          
-          // Setup listener for conversation updates to track unread messages
-          chatService.onConversationsUpdate((conversations) => {
-            const unreadCounts: { [userId: string]: number } = {};
-            let totalUnreadCount = 0;
-            
-            conversations.forEach(conversation => {
-              unreadCounts[conversation.user.id] = conversation.unreadCount;
-              totalUnreadCount += conversation.unreadCount;
-            });
-            
-            setState(prev => ({
-              ...prev,
-              unreadCounts,
-              totalUnreadCount,
-            }));
+          conversations.forEach(conversation => {
+            unreadCounts[conversation.user.id] = conversation.unreadCount;
+            totalUnreadCount += conversation.unreadCount;
           });
-        }
+          
+          setState(prev => ({
+            ...prev,
+            unreadCounts,
+            totalUnreadCount,
+          }));
+        });
       } catch (error) {
         console.error('Error initializing chat user:', error);
         setState({
