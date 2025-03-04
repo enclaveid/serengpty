@@ -28,6 +28,11 @@ model User {
   updatedAt DateTime @updatedAt
 
   userPaths UserPath[]
+  
+  // Chat-related relations
+  channelMembers      ChannelMember[]
+  sentMessages        Message[]
+  lastSeen            DateTime?
 }
 
 model Conversation {
@@ -117,4 +122,52 @@ model VerificationToken {
   expires    DateTime
 
   @@id([identifier, token])
+}
+
+// -------------------- Custom Chat Models --------------------
+
+model ChatChannel {
+  id            String   @id @default(uuid())
+  name          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastMessageAt DateTime?
+
+  // Relations
+  members   ChannelMember[]
+  messages  Message[]
+
+  @@map("chat_channels")
+}
+
+model ChannelMember {
+  // Relationship between users and channels
+  channelId    String
+  userId       String
+  joinedAt     DateTime @default(now())
+  lastReadAt   DateTime?
+
+  // Relations
+  channel      ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@map("channel_members")
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  channelId   String
+  userId      String
+  text        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deleted     Boolean   @default(false)
+  readAt      DateTime? // Since chats are 1-1, we can track read status directly
+  
+  // Relations
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
 }
