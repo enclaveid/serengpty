@@ -45,23 +45,44 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     if (!user) {
       resetChatService();
       setIsConnected(false);
+      setConversations([]);
+      setMessages(new Map());
       return;
     }
 
     const chatService = getChatService();
     
     // Connect to chat
-    chatService.connect().then(() => {
-      setIsConnected(true);
-    });
+    let isMounted = true;
+    chatService.connect()
+      .then(() => {
+        if (isMounted) {
+          setIsConnected(true);
+        }
+      })
+      .catch(error => {
+        console.error("Failed to connect to chat service:", error);
+        if (isMounted) {
+          setIsConnected(false);
+        }
+      });
 
     // Set up listeners
     const conversationsListener = chatService.onConversationsUpdate((newConversations) => {
-      setConversations(newConversations);
+      if (isMounted) {
+        setConversations(prev => {
+          // Check if they're actually different to avoid unnecessary rerenders
+          if (JSON.stringify(prev) === JSON.stringify(newConversations)) {
+            return prev;
+          }
+          return newConversations;
+        });
+      }
     });
 
     // Cleanup
     return () => {
+      isMounted = false;
       conversationsListener();
     };
   }, [user]);
@@ -71,30 +92,74 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
     if (!currentConversation || !user) return;
 
     const chatService = getChatService();
+    let isMounted = true;
+    
+    // Show loading state
+    const loadingState: Message[] = [];
+    setMessages(prev => {
+      const newMessages = new Map(prev);
+      newMessages.set(currentConversation, loadingState);
+      return newMessages;
+    });
     
     // Load initial messages
-    chatService.getMessages(currentConversation).then((conversationMessages) => {
-      setMessages(prev => {
-        const newMessages = new Map(prev);
-        newMessages.set(currentConversation, conversationMessages);
-        return newMessages;
+    chatService.getMessages(currentConversation)
+      .then((conversationMessages) => {
+        if (isMounted) {
+          setMessages(prev => {
+            const newMessages = new Map(prev);
+            newMessages.set(currentConversation, conversationMessages);
+            return newMessages;
+          });
+        }
+      })
+      .catch(error => {
+        console.error("Error loading messages:", error);
+        if (isMounted) {
+          // Keep previous messages if there are any, or show empty
+          setMessages(prev => {
+            const existing = prev.get(currentConversation);
+            if (existing && existing !== loadingState) {
+              return prev;
+            }
+            const newMessages = new Map(prev);
+            newMessages.set(currentConversation, []);
+            return newMessages;
+          });
+        }
       });
-    });
 
     // Set up message listener
     const messageListener = chatService.onNewMessage(currentConversation, (newMessage) => {
-      setMessages(prev => {
-        const conversationMessages = prev.get(currentConversation) || [];
-        const newMessages = new Map(prev);
-        newMessages.set(currentConversation, [...conversationMessages, newMessage]);
-        return newMessages;
-      });
+      if (isMounted) {
+        setMessages(prev => {
+          const conversationMessages = prev.get(currentConversation) || [];
+          // Prevent duplicate messages
+          const isDuplicate = conversationMessages.some(
+            msg => msg.id === newMessage.id || 
+                 (msg.text === newMessage.text && 
+                  msg.sender_id === newMessage.sender_id &&
+                  msg.receiver_id === newMessage.receiver_id)
+          );
+          
+          if (isDuplicate) {
+            return prev;
+          }
+          
+          const newMessages = new Map(prev);
+          newMessages.set(currentConversation, [...conversationMessages, newMessage]);
+          return newMessages;
+        });
+      }
     });
 
     // Mark as read when conversation is opened
-    chatService.markAsRead(currentConversation);
+    chatService.markAsRead(currentConversation).catch(error => {
+      console.error("Error marking messages as read:", error);
+    });
 
     return () => {
+      isMounted = false;
       messageListener();
     };
   }, [currentConversation, user]);
@@ -102,7 +167,11 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   const sendMessage = async (receiverId: string, text: string): Promise<Message | null> => {
     if (!user) return null;
     const chatService = getChatService();
-    return chatService.sendMessage(receiverId, text);
+    const result = await chatService.sendMessage(receiverId, text);
+    if (!result) {
+      throw new Error("Failed to send message");
+    }
+    return result;
   };
 
   const markAsRead = async (otherUserId: string): Promise<void> => {

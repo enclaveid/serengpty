@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from './getCurrentUser';
 import prisma from '../services/db/prisma';
-import { ResponseSender } from '../api/chat/sse/route';
 
 export interface Message {
   id?: string;
@@ -29,7 +28,7 @@ export interface Conversation {
  */
 export async function getConversations(): Promise<Conversation[]> {
   const currentUser = await getCurrentUser();
-  
+
   if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
@@ -39,13 +38,10 @@ export async function getConversations(): Promise<Conversation[]> {
   // Get all messages where the current user is either the sender or receiver
   const conversationMessages = await prisma.message.findMany({
     where: {
-      OR: [
-        { senderId: currentUserId },
-        { receiverId: currentUserId }
-      ]
+      OR: [{ senderId: currentUserId }, { receiverId: currentUserId }],
     },
     orderBy: {
-      createdAt: 'desc'
+      createdAt: 'desc',
     },
     include: {
       sender: {
@@ -53,31 +49,31 @@ export async function getConversations(): Promise<Conversation[]> {
           id: true,
           name: true,
           image: true,
-        }
+        },
       },
       receiver: {
         select: {
           id: true,
           name: true,
           image: true,
-        }
-      }
-    }
+        },
+      },
+    },
   });
 
   // Get unique conversations
   const uniqueConversations = new Map();
-  
+
   for (const message of conversationMessages) {
     // Determine the other person in the conversation
-    const otherPersonId = message.senderId === currentUserId 
-      ? message.receiverId 
-      : message.senderId;
-    
-    const otherPerson = message.senderId === currentUserId 
-      ? message.receiver 
-      : message.sender;
-      
+    const otherPersonId =
+      message.senderId === currentUserId
+        ? message.receiverId
+        : message.senderId;
+
+    const otherPerson =
+      message.senderId === currentUserId ? message.receiver : message.sender;
+
     if (!uniqueConversations.has(otherPersonId)) {
       // Count unread messages for this conversation
       const unreadCount = await prisma.message.count({
@@ -85,7 +81,7 @@ export async function getConversations(): Promise<Conversation[]> {
           senderId: otherPersonId,
           receiverId: currentUserId,
           readAt: null,
-        }
+        },
       });
 
       uniqueConversations.set(otherPersonId, {
@@ -115,7 +111,7 @@ export async function getConversations(): Promise<Conversation[]> {
  */
 export async function getMessages(otherUserId: string): Promise<Message[]> {
   const currentUser = await getCurrentUser();
-  
+
   if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
@@ -127,16 +123,16 @@ export async function getMessages(otherUserId: string): Promise<Message[]> {
     where: {
       OR: [
         { senderId: currentUserId, receiverId: otherUserId },
-        { senderId: otherUserId, receiverId: currentUserId }
-      ]
+        { senderId: otherUserId, receiverId: currentUserId },
+      ],
     },
     orderBy: {
-      createdAt: 'asc'
-    }
+      createdAt: 'asc',
+    },
   });
 
   // Format messages for client
-  return messages.map(message => ({
+  return messages.map((message) => ({
     id: message.id,
     sender_id: message.senderId,
     receiver_id: message.receiverId,
@@ -149,22 +145,31 @@ export async function getMessages(otherUserId: string): Promise<Message[]> {
 /**
  * Sends a message from the current user to another user
  */
-export async function sendMessage(receiverId: string, text: string): Promise<Message | null> {
+export async function sendMessage(
+  receiverId: string,
+  text: string
+): Promise<Message | null> {
   const currentUser = await getCurrentUser();
-  
+
   if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
 
   const currentUserId = currentUser.id;
-  
+
   // Create message
   const message = await prisma.message.create({
     data: {
-      senderId: currentUserId,
-      receiverId,
       text,
-    }
+      sender: {
+        connect: {
+          id: currentUserId,
+        },
+      },
+      receiver: {
+        connect: { id: receiverId },
+      },
+    },
   });
 
   // Format response
@@ -181,19 +186,19 @@ export async function sendMessage(receiverId: string, text: string): Promise<Mes
   try {
     // Import dynamically to avoid circular dependencies
     const { sendMessageToUser } = await import('../api/chat/sse/route');
-    
+
     // Notify the sender
     sendMessageToUser(currentUserId, {
       type: 'message',
-      message: formattedMessage
+      message: formattedMessage,
     });
-    
+
     // Notify the receiver
     sendMessageToUser(receiverId, {
       type: 'message',
-      message: formattedMessage
+      message: formattedMessage,
     });
-    
+
     // Update conversation lists
     setTimeout(async () => {
       await updateConversationsForUser(currentUserId);
@@ -212,7 +217,7 @@ export async function sendMessage(receiverId: string, text: string): Promise<Mes
  */
 export async function markAsRead(otherUserId: string): Promise<boolean> {
   const currentUser = await getCurrentUser();
-  
+
   if (!currentUser?.id) {
     throw new Error('Unauthorized');
   }
@@ -259,18 +264,17 @@ export async function markAsRead(otherUserId: string): Promise<boolean> {
 /**
  * Updates the conversation list for a user
  */
-export async function updateConversationsForUser(userId: string): Promise<boolean> {
+export async function updateConversationsForUser(
+  userId: string
+): Promise<boolean> {
   try {
     // Get all messages where the user is either the sender or receiver
     const conversationMessages = await prisma.message.findMany({
       where: {
-        OR: [
-          { senderId: userId },
-          { receiverId: userId }
-        ]
+        OR: [{ senderId: userId }, { receiverId: userId }],
       },
       orderBy: {
-        createdAt: 'desc'
+        createdAt: 'desc',
       },
       include: {
         sender: {
@@ -278,31 +282,29 @@ export async function updateConversationsForUser(userId: string): Promise<boolea
             id: true,
             name: true,
             image: true,
-          }
+          },
         },
         receiver: {
           select: {
             id: true,
             name: true,
             image: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     // Get unique conversations
     const uniqueConversations = new Map();
-    
+
     for (const message of conversationMessages) {
       // Determine the other person in the conversation
-      const otherPersonId = message.senderId === userId 
-        ? message.receiverId 
-        : message.senderId;
-      
-      const otherPerson = message.senderId === userId 
-        ? message.receiver 
-        : message.sender;
-        
+      const otherPersonId =
+        message.senderId === userId ? message.receiverId : message.senderId;
+
+      const otherPerson =
+        message.senderId === userId ? message.receiver : message.sender;
+
       if (!uniqueConversations.has(otherPersonId)) {
         // Count unread messages for this conversation
         const unreadCount = await prisma.message.count({
@@ -310,7 +312,7 @@ export async function updateConversationsForUser(userId: string): Promise<boolea
             senderId: otherPersonId,
             receiverId: userId,
             readAt: null,
-          }
+          },
         });
 
         uniqueConversations.set(otherPersonId, {
@@ -334,13 +336,13 @@ export async function updateConversationsForUser(userId: string): Promise<boolea
 
     // Import dynamically to avoid circular dependencies
     const { sendMessageToUser } = await import('../api/chat/sse/route');
-    
+
     // Send updated conversations to the user
     sendMessageToUser(userId, {
       type: 'conversations',
-      conversations: Array.from(uniqueConversations.values())
+      conversations: Array.from(uniqueConversations.values()),
     });
-    
+
     return true;
   } catch (error) {
     console.error('Error updating conversations for user:', error);

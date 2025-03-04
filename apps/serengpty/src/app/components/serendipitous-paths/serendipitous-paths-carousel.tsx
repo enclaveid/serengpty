@@ -258,10 +258,10 @@ function UserCard({
         <p className="font-medium">{pathSummary}</p>
       </CardContent>
       <CardFooter className="flex justify-end">
-        <ChatButton 
-          otherUserId={user.id} 
-          otherUserName={user.name} 
-          variant={isActive ? 'default' : 'outline'} 
+        <ChatButton
+          userId={user.id}
+          userName={user.name}
+          variant={isActive ? 'default' : 'outline'}
           size="sm"
         />
       </CardFooter>

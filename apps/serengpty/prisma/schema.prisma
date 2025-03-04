@@ -28,7 +28,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   userPaths UserPath[]
-  
+
   // Chat-related relations
   sentMessages     Message[]
   receivedMessages Message[] @relation("receivedMessages")
@@ -127,22 +127,20 @@ model VerificationToken {
 // -------------------- Custom Chat Models --------------------
 
 model Message {
-  id          String    @id @default(uuid())
-  senderId    String
-  receiverId  String
-  text        String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deleted     Boolean   @default(false)
-  readAt      DateTime?
-  
-  // Relations
-  sender      User      @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  receiver    User      @relation("receivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  id         String    @id @default(uuid())
+  senderId   String
+  receiverId String
+  text       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  readAt     DateTime?
 
-  @@map("messages")
-  
+  // Relations
+  sender   User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
   // Index to quickly lookup conversations between two users
   @@index([senderId, receiverId])
   @@index([receiverId, senderId])
+  @@map("messages")
 }

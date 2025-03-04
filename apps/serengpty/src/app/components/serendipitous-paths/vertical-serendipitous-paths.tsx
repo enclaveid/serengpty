@@ -134,8 +134,8 @@ export function VerticalSerendipitousPaths({
         <div className="p-4 border-b flex justify-between items-center">
           <h2 className="text-xl font-semibold">Path Details</h2>
           <ChatButton
-            otherUserId={selectedUser.id}
-            otherUserName={selectedUser.name}
+            userId={selectedUser.id}
+            userName={selectedUser.name}
             variant="outline"
             size="sm"
             className="flex items-center"

@@ -95,7 +95,6 @@ CREATE TABLE "messages" (
     "text" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-    "deleted" BOOLEAN NOT NULL DEFAULT false,
     "readAt" TIMESTAMP(3),
 
     CONSTRAINT "messages_pkey" PRIMARY KEY ("id")

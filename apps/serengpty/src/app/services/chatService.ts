@@ -88,8 +88,24 @@ class ChatService {
       this.clearReconnectTimer();
       this.reconnectTimer = setTimeout(() => {
         console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-        this.connect();
+        
+        // Clear any existing event source
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
+        }
+        
+        // Reset state to avoid stale data
+        this.isConnected = false;
+        
+        // Attempt to reconnect
+        this.connect().catch(err => {
+          console.error("Reconnection attempt failed:", err);
+          this.handleDisconnect();
+        });
       }, delay);
+    } else {
+      console.error("Max reconnection attempts reached. Chat connection lost.");
     }
   }
 
@@ -139,24 +155,24 @@ class ChatService {
 
   async sendMessage(receiverId: string, text: string): Promise<Message | null> {
     try {
-      // Get current user ID to create optimistic message
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        throw new Error('Not authenticated');
-      }
-
-      const message = {
-        sender_id: userId,
-        receiver_id: receiverId,
-        text,
-        created_at: new Date().toISOString(),
-      };
-      
-      // Optimistically add to local messages
-      this.addMessageToConversation(receiverId, message);
-      
       // Send to server using server action
       const confirmedMessage = await sendMessageAction(receiverId, text);
+      
+      // Once confirmed, add to local messages if the server didn't already send it via SSE
+      if (confirmedMessage) {
+        const existingMessages = this.conversations.get(receiverId) || [];
+        const messageExists = existingMessages.some(
+          msg => msg.id === confirmedMessage.id || 
+                (msg.text === confirmedMessage.text && 
+                 msg.sender_id === confirmedMessage.sender_id &&
+                 msg.receiver_id === confirmedMessage.receiver_id)
+        );
+        
+        if (!messageExists) {
+          this.addMessageToConversation(receiverId, confirmedMessage);
+        }
+      }
+      
       return confirmedMessage;
     } catch (error) {
       console.error('Error sending message:', error);

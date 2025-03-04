@@ -121,7 +121,6 @@ model Message {
   text        String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  deleted     Boolean   @default(false)
   readAt      DateTime?
   
   // Relations
